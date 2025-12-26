@@ -3,6 +3,7 @@ from telebot import types
 import os
 from flask import Flask
 from threading import Thread
+import time
 
 # --- CONFIGURATION ---
 TOKEN = '8434658302:AAFTeNg0PDQIHWnNX2cYtk0yTk0UBWGAxT8'
@@ -17,7 +18,7 @@ LINK_FACEBOOK = "https://www.facebook.com/profile.php?id=61555961901782"
 
 bot = telebot.TeleBot(TOKEN)
 
-# --- WEB SERVER ---
+# --- WEB SERVER (Render Keep Alive) ---
 app = Flask('')
 
 @app.route('/')
@@ -31,24 +32,7 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# --- HELPER FUNCTIONS ---
-def save_user(chat_id):
-    if not os.path.exists(USER_FILE):
-        with open(USER_FILE, "w") as f:
-            pass
-    with open(USER_FILE, "r") as f:
-        users = f.read().splitlines()
-    if str(chat_id) not in users:
-        with open(USER_FILE, "a") as f:
-            f.write(str(chat_id) + "\n")
-
-def get_users():
-    if not os.path.exists(USER_FILE):
-        return []
-    with open(USER_FILE, "r") as f:
-        return f.read().splitlines()
-
-# --- 1. ADMIN TO CHANNEL (Auto Post) ---
+# --- 1. ADMIN TO CHANNEL (Forwarding) ---
 @bot.message_handler(content_types=['text', 'photo', 'video', 'document', 'audio'], func=lambda m: m.chat.id == ADMIN_ID and m.chat.type == 'private')
 def forward_to_channel(message):
     if message.text and message.text.startswith('/'):
@@ -60,12 +44,13 @@ def forward_to_channel(message):
         except Exception as e:
             bot.reply_to(message, f"❌ Error: {e}")
 
-# --- 2. SUPER SMART REPLY (Anonymous + Group + Private) ---
-# Ye handler har tarah ke message ko check karega
+# --- 2. UNIVERSAL AUTO REPLY (User + Anonymous Admin) ---
+# YAHAN BADLAV HAI: @bot.channel_post_handler add kiya hai
 @bot.message_handler(func=lambda m: True)
+@bot.channel_post_handler(func=lambda m: True) 
 def auto_reply(message):
     try:
-        # Text nikalna (Chahe caption ho ya normal text)
+        # Text nikalo (Text ya Caption)
         text = ""
         if message.text:
             text = message.text.lower()
@@ -75,25 +60,26 @@ def auto_reply(message):
         if not text:
             return
 
-        user_id = message.chat.id
-        
-        # Sirf Private me user save karein (Group me crash na ho)
-        if message.chat.type == 'private':
-            save_user(user_id)
+        # Agar command hai to ignore karo (taki loop na bane)
+        if text.startswith('/'):
+            if text == "/start":
+                # Start command ka reply
+                bot.reply_to(message, "Hello! Main Active hoon. \nTry: 'Facebook', 'YouTube' or 'Hopweb'")
+            return
 
-        # --- LOGIC START (Order Change kiya hai taaki galti na ho) ---
+        # --- KEYWORD CHECKING ---
 
-        # 1. FACEBOOK (Priority 1)
+        # 1. FACEBOOK
         if "facebook" in text:
-            bot.reply_to(message, f"👍 Facebook Page:\n{LINK_FACEBOOK}")
+            bot.reply_to(message, f"👍 Facebook Page Link:\n{LINK_FACEBOOK}")
             return
 
-        # 2. YOUTUBE (Priority 2)
+        # 2. YOUTUBE
         if "youtube" in text:
-            bot.reply_to(message, f"📺 YouTube Channel:\n{LINK_YOUTUBE}")
+            bot.reply_to(message, f"📺 YouTube Channel Link:\n{LINK_YOUTUBE}")
             return
 
-        # 3. HOPWEB (Priority 3)
+        # 3. HOPWEB
         if "hopweb" in text:
             markup = types.InlineKeyboardMarkup()
             btn = types.InlineKeyboardButton("⬇️ Download HopWeb", url="https://play.google.com/store/apps/details?id=com.hopweb")
@@ -101,18 +87,10 @@ def auto_reply(message):
             bot.reply_to(message, "HopWeb App yahan se download karein:", reply_markup=markup)
             return
 
-        # 4. TELEGRAM/CHANNEL (Priority 4)
+        # 4. TELEGRAM/CHANNEL
         if "telegram" in text or "channel" in text:
             bot.reply_to(message, f"📢 Telegram Channel:\n{LINK_TELEGRAM}")
             return
-
-        # 5. COMMANDS
-        if text == "/start":
-            bot.reply_to(message, "Hello! Main Active hoon. \nLikhein: 'Facebook', 'YouTube' ya 'Hopweb'")
-
-        if text == "/stats" and user_id == ADMIN_ID:
-            users = get_users()
-            bot.reply_to(message, f"📊 Total Bot Users: {len(users)}")
 
     except Exception as e:
         print(f"Error: {e}")
@@ -120,30 +98,5 @@ def auto_reply(message):
 # --- START BOT ---
 if __name__ == "__main__":
     keep_alive()
-    bot.infinity_polling(skip_pending=True)        bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
-
-    # 7. ADMIN COMMANDS
-    if user_id == ADMIN_ID:
-        if text == "/stats":
-            users = get_users()
-            bot.reply_to(message, f"📊 Total Bot Users: {len(users)}")
-        elif text.startswith("/broadcast"):
-            msg_parts = message.text.split(' ', 1)
-            if len(msg_parts) > 1:
-                text_to_send = msg_parts[1]
-                users = get_users()
-                count = 0
-                for user in users:
-                    try:
-                        bot.send_message(int(user), text_to_send)
-                        count += 1
-                    except:
-                        pass
-                bot.reply_to(message, f"✅ Broadcast sent to {count} users.")
-
-# --- START BOT ---
-if __name__ == "__main__":
-    keep_alive()
-    bot.infinity_polling()if __name__ == "__main__":
-    keep_alive()
-    bot.infinity_polling()
+    # Skip pending messages to avoid crash on start
+    bot.infinity_polling(skip_pending=True)
