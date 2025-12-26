@@ -1,5 +1,3 @@
-requests
 pyTelegramBotAPI
 flask
 gunicorn
-it is hy
