@@ -4,23 +4,20 @@ import os
 from flask import Flask
 from threading import Thread
 
-# --- CONFIGURATION (Sahi details yahan hain) ---
+# --- CONFIGURATION ---
 TOKEN = '8434658302:AAFTeNg0PDQIHWnNX2cYtk0yTk0UBWGAxT8'
-
-# Galti yahan thi, ab maine isse thik kar diya hai (No quotes needed for numbers)
-ADMIN_ID = 8190715241 
-
+ADMIN_ID = 8190715241  # Aapka ID
+CHANNEL_USERNAME = "@A1Android" # Aapka Channel jahan post jayega
 USER_FILE = "users.txt"
 
-# Bot Initialize
 bot = telebot.TeleBot(TOKEN)
 
-# --- RENDER WEB SERVER (Bot ko zinda rakhne ke liye) ---
+# --- WEB SERVER (Render ke liye) ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is Running! 🚀 Status: Online"
+    return "Bot is Running! 🚀"
 
 def run():
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
@@ -39,7 +36,6 @@ def save_user(chat_id):
     if str(chat_id) not in users:
         with open(USER_FILE, "a") as f:
             f.write(str(chat_id) + "\n")
-            print(f"New user saved: {chat_id}")
 
 def get_users():
     if not os.path.exists(USER_FILE):
@@ -47,64 +43,73 @@ def get_users():
     with open(USER_FILE, "r") as f:
         return f.read().splitlines()
 
-# --- BOT COMMANDS ---
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
+# --- 1. ADMIN TO CHANNEL (Auto Post) ---
+# Sirf Admin jab private mein kuch bhejega, wo Channel pe jayega
+@bot.message_handler(content_types=['text', 'photo', 'video', 'document', 'audio'], func=lambda m: m.chat.id == ADMIN_ID and m.chat.type == 'private')
+def forward_to_channel(message):
+    try:
+        # Message ko copy karke channel pe bhejta hai
+        bot.copy_message(chat_id=CHANNEL_USERNAME, from_chat_id=message.chat.id, message_id=message.message_id)
+        bot.reply_to(message, f"✅ Sent to {CHANNEL_USERNAME}")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: Bot ko Channel me ADMIN banayein.\nError: {e}")
+
+# --- 2. GROUP KEYWORDS (Hopweb Reply) ---
+# Ye Group aur Private dono jagah kaam karega
+@bot.message_handler(func=lambda m: True)
+def auto_reply(message):
+    text = message.text.lower() # Message ko chhota text banata hai check karne ke liye
     user_id = message.chat.id
-    first_name = message.from_user.first_name
     
-    # Save User
-    save_user(user_id)
+    # User Save karna (Stats ke liye)
+    if message.chat.type == 'private':
+        save_user(user_id)
 
-    # Welcome Text
-    welcome_text = f"Hello {first_name}! 👋\n\nNiche diye gaye buttons par click karke mere social media channels ko join karein:"
+    # --- KEYWORD: HOPWEB ---
+    if "hopweb" in text:
+        # Option A: Link Bhejna (Sabse Aasan)
+        markup = types.InlineKeyboardMarkup()
+        btn_dl = types.InlineKeyboardButton("⬇️ Download HopWeb", url="https://play.google.com/store/apps/details?id=com.hopweb") # Yahan Link badal sakte hain
+        markup.add(btn_dl)
+        
+        bot.reply_to(message, "Ye lijiye HopWeb App 👇", reply_markup=markup)
+        
+        # Option B: Agar Direct File bhejni hai (Advanced)
+        # Niche wali line uncomment karein agar aapke paas File ID hai:
+        # bot.send_document(message.chat.id, "FILE_ID_YAHAN_DALEIN")
 
-    # Buttons
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    btn_telegram = types.InlineKeyboardButton("📢 Join Telegram Channel", url="https://t.me/A1Android")
-    btn_youtube = types.InlineKeyboardButton("📺 Subscribe YouTube", url="https://www.youtube.com/@Aiapplication1")
-    btn_facebook = types.InlineKeyboardButton("👍 Follow Facebook", url="https://www.facebook.com/profile.php?id=61555961901782")
-    
-    markup.add(btn_telegram, btn_youtube, btn_facebook)
-    
-    # Admin Notification
-    if user_id == ADMIN_ID:
-        bot.send_message(user_id, "✅ Welcome Admin! Bot sahi se kaam kar raha hai.\n\nCommands:\n/stats - Check Users\n/broadcast [Message] - Send Message to All")
+    # --- COMMAND: START ---
+    elif text == "/start":
+        first_name = message.from_user.first_name
+        welcome_text = f"Hello {first_name}! 👋\nSocial Media join karein:"
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        btn_telegram = types.InlineKeyboardButton("📢 Join Telegram", url="https://t.me/A1Android")
+        btn_youtube = types.InlineKeyboardButton("📺 Subscribe YouTube", url="https://www.youtube.com/@Aiapplication1")
+        btn_facebook = types.InlineKeyboardButton("👍 Follow Facebook", url="https://www.facebook.com/profile.php?id=61555961901782")
+        markup.add(btn_telegram, btn_youtube, btn_facebook)
+        bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
-    bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
-
-# Admin Command: Stats
-@bot.message_handler(commands=['stats'])
-def stats(message):
-    if message.chat.id == ADMIN_ID:
+    # --- COMMAND: STATS (Admin Only) ---
+    elif text == "/stats" and user_id == ADMIN_ID:
         users = get_users()
         bot.reply_to(message, f"📊 Total Users: {len(users)}")
 
-# Admin Command: Broadcast
-@bot.message_handler(commands=['broadcast'])
-def broadcast_message(message):
-    if message.chat.id == ADMIN_ID:
-        msg_text = message.text.split(' ', 1)
-        if len(msg_text) > 1:
-            text_to_send = msg_text[1]
+    # --- COMMAND: BROADCAST (Admin Only) ---
+    elif text.startswith("/broadcast") and user_id == ADMIN_ID:
+        msg_parts = message.text.split(' ', 1)
+        if len(msg_parts) > 1:
+            text_to_send = msg_parts[1]
             users = get_users()
-            sent_count = 0
-            fail_count = 0
-            
-            status_msg = bot.reply_to(message, f"🚀 Broadcasting to {len(users)} users...")
-            
+            count = 0
             for user in users:
                 try:
                     bot.send_message(int(user), text_to_send)
-                    sent_count += 1
+                    count += 1
                 except:
-                    fail_count += 1
-            
-            bot.edit_message_text(f"✅ Broadcast Complete!\nSuccess: {sent_count}\nFailed: {fail_count}", chat_id=ADMIN_ID, message_id=status_msg.message_id)
-        else:
-            bot.reply_to(message, "❌ Message likhna bhul gaye.\nAise likhein: `/broadcast Hello Sab log`")
+                    pass
+            bot.reply_to(message, f"✅ Sent to {count} users.")
 
 # --- START BOT ---
 if __name__ == "__main__":
-    keep_alive()  # Web server start
-    bot.infinity_polling()  # Telegram bot start
+    keep_alive()
+    bot.infinity_polling()
