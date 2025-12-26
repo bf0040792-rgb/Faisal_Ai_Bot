@@ -4,20 +4,20 @@ import os
 from flask import Flask
 from threading import Thread
 
-# --- CONFIGURATION (Apna Token aur ID Check karein) ---
+# --- CONFIGURATION ---
 TOKEN = '8434658302:AAFTeNg0PDQIHWnNX2cYtk0yTk0UBWGAxT8'
-ADMIN_ID = 8190715241  # Aapka Admin ID
-CHANNEL_USERNAME = "@A1Android" 
+ADMIN_ID = 8190715241
+CHANNEL_USERNAME = "@A1Android"
 USER_FILE = "users.txt"
 
-# --- LINKS (Yahan wo links hain jo Bot reply karega) ---
+# --- LINKS ---
 LINK_YOUTUBE = "https://www.youtube.com/@Aiapplication1"
 LINK_TELEGRAM = "https://t.me/A1Android"
 LINK_FACEBOOK = "https://www.facebook.com/profile.php?id=61555961901782"
 
 bot = telebot.TeleBot(TOKEN)
 
-# --- WEB SERVER (Render ke liye zaroori) ---
+# --- WEB SERVER ---
 app = Flask('')
 
 @app.route('/')
@@ -49,12 +49,10 @@ def get_users():
         return f.read().splitlines()
 
 # --- 1. ADMIN TO CHANNEL (Auto Post) ---
-# Admin private me jo bhejega wo Channel pe jayega
 @bot.message_handler(content_types=['text', 'photo', 'video', 'document', 'audio'], func=lambda m: m.chat.id == ADMIN_ID and m.chat.type == 'private')
 def forward_to_channel(message):
-    # Agar Admin commands use kar raha hai to post mat karo
     if message.text and message.text.startswith('/'):
-        pass # Command handler niche deal karega
+        pass
     else:
         try:
             bot.copy_message(chat_id=CHANNEL_USERNAME, from_chat_id=message.chat.id, message_id=message.message_id)
@@ -62,55 +60,67 @@ def forward_to_channel(message):
         except Exception as e:
             bot.reply_to(message, f"❌ Error: {e}")
 
-# --- 2. GROUP & USER AUTO REPLY (Smart Features) ---
+# --- 2. SUPER SMART REPLY (Anonymous + Group + Private) ---
+# Ye handler har tarah ke message ko check karega
 @bot.message_handler(func=lambda m: True)
 def auto_reply(message):
-    text = message.text.lower() # Message ko chhota text banata hai check karne ke liye
-    user_id = message.chat.id
-    
-    # User Save (Sirf Private Chat me)
-    if message.chat.type == 'private':
-        save_user(user_id)
+    try:
+        # Text nikalna (Chahe caption ho ya normal text)
+        text = ""
+        if message.text:
+            text = message.text.lower()
+        elif message.caption:
+            text = message.caption.lower()
+            
+        if not text:
+            return
 
-    # --- LOGIC START ---
-
-    # 1. YOUTUBE MAANGA?
-    if "youtube" in text:
-        bot.reply_to(message, f"📺 Ye lijiye YouTube Channel ka link:\n{LINK_YOUTUBE}")
-
-    # 2. TELEGRAM/CHANNEL MAANGA?
-    elif "telegram" in text or "channel" in text:
-        bot.reply_to(message, f"📢 Ye raha hamara Telegram Channel:\n{LINK_TELEGRAM}")
-
-    # 3. FACEBOOK MAANGA?
-    elif "facebook" in text:
-        bot.reply_to(message, f"👍 Facebook Page:\n{LINK_FACEBOOK}")
-
-    # 4. HOPWEB MAANGA?
-    elif "hopweb" in text:
-        markup = types.InlineKeyboardMarkup()
-        btn = types.InlineKeyboardButton("⬇️ Download HopWeb", url="https://play.google.com/store/apps/details?id=com.hopweb")
-        markup.add(btn)
-        bot.reply_to(message, "HopWeb App yahan se download karein:", reply_markup=markup)
-
-    # 5. SIRF "LINK" MAANGA? (Sab dikhao)
-    elif text == "link" or text == "links":
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        b1 = types.InlineKeyboardButton("📺 YouTube", url=LINK_YOUTUBE)
-        b2 = types.InlineKeyboardButton("📢 Telegram", url=LINK_TELEGRAM)
-        b3 = types.InlineKeyboardButton("👍 Facebook", url=LINK_FACEBOOK)
-        markup.add(b1, b2, b3)
-        bot.reply_to(message, "📌 Yahan hamare saare links hain:", reply_markup=markup)
-
-    # 6. COMMAND: /START
-    elif text == "/start":
-        first_name = message.from_user.first_name
-        welcome_text = f"Hello {first_name}! 👋\nMain A1Android ka Assistant hun.\n\nAap Group me likh sakte hain:\n- 'YouTube link'\n- 'Channel link'\n- 'Hopweb'"
+        user_id = message.chat.id
         
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(types.InlineKeyboardButton("📢 Join Channel", url=LINK_TELEGRAM))
-        
-        bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
+        # Sirf Private me user save karein (Group me crash na ho)
+        if message.chat.type == 'private':
+            save_user(user_id)
+
+        # --- LOGIC START (Order Change kiya hai taaki galti na ho) ---
+
+        # 1. FACEBOOK (Priority 1)
+        if "facebook" in text:
+            bot.reply_to(message, f"👍 Facebook Page:\n{LINK_FACEBOOK}")
+            return
+
+        # 2. YOUTUBE (Priority 2)
+        if "youtube" in text:
+            bot.reply_to(message, f"📺 YouTube Channel:\n{LINK_YOUTUBE}")
+            return
+
+        # 3. HOPWEB (Priority 3)
+        if "hopweb" in text:
+            markup = types.InlineKeyboardMarkup()
+            btn = types.InlineKeyboardButton("⬇️ Download HopWeb", url="https://play.google.com/store/apps/details?id=com.hopweb")
+            markup.add(btn)
+            bot.reply_to(message, "HopWeb App yahan se download karein:", reply_markup=markup)
+            return
+
+        # 4. TELEGRAM/CHANNEL (Priority 4)
+        if "telegram" in text or "channel" in text:
+            bot.reply_to(message, f"📢 Telegram Channel:\n{LINK_TELEGRAM}")
+            return
+
+        # 5. COMMANDS
+        if text == "/start":
+            bot.reply_to(message, "Hello! Main Active hoon. \nLikhein: 'Facebook', 'YouTube' ya 'Hopweb'")
+
+        if text == "/stats" and user_id == ADMIN_ID:
+            users = get_users()
+            bot.reply_to(message, f"📊 Total Bot Users: {len(users)}")
+
+    except Exception as e:
+        print(f"Error: {e}")
+
+# --- START BOT ---
+if __name__ == "__main__":
+    keep_alive()
+    bot.infinity_polling(skip_pending=True)        bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
 
     # 7. ADMIN COMMANDS
     if user_id == ADMIN_ID:
