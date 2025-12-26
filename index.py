@@ -3,7 +3,6 @@ from telebot import types
 import os
 from flask import Flask
 from threading import Thread
-import time
 
 # --- CONFIGURATION ---
 TOKEN = '8434658302:AAFTeNg0PDQIHWnNX2cYtk0yTk0UBWGAxT8'
@@ -11,14 +10,14 @@ ADMIN_ID = 8190715241
 CHANNEL_USERNAME = "@A1Android"
 USER_FILE = "users.txt"
 
-# --- LINKS ---
+# --- HARDCODED LINKS (Bot inko yaad rakhta hai) ---
 LINK_YOUTUBE = "https://www.youtube.com/@Aiapplication1"
 LINK_TELEGRAM = "https://t.me/A1Android"
 LINK_FACEBOOK = "https://www.facebook.com/profile.php?id=61555961901782"
 
 bot = telebot.TeleBot(TOKEN)
 
-# --- WEB SERVER (Render Keep Alive) ---
+# --- WEB SERVER ---
 app = Flask('')
 
 @app.route('/')
@@ -32,71 +31,86 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# --- 1. ADMIN TO CHANNEL (Forwarding) ---
+# --- HELPER FUNCTIONS ---
+def save_user(chat_id):
+    if not os.path.exists(USER_FILE):
+        with open(USER_FILE, "w") as f:
+            pass
+    with open(USER_FILE, "r") as f:
+        users = f.read().splitlines()
+    if str(chat_id) not in users:
+        with open(USER_FILE, "a") as f:
+            f.write(str(chat_id) + "\n")
+
+def get_users():
+    if not os.path.exists(USER_FILE):
+        return []
+    with open(USER_FILE, "r") as f:
+        return f.read().splitlines()
+
+# --- 1. ADMIN POSTING SYSTEM ---
+# Admin jab Bot ko private me bhejega, Bot channel pe forward karega
 @bot.message_handler(content_types=['text', 'photo', 'video', 'document', 'audio'], func=lambda m: m.chat.id == ADMIN_ID and m.chat.type == 'private')
-def forward_to_channel(message):
+def handle_admin_post(message):
+    # Commands ko ignore karein
     if message.text and message.text.startswith('/'):
-        pass
-    else:
-        try:
-            bot.copy_message(chat_id=CHANNEL_USERNAME, from_chat_id=message.chat.id, message_id=message.message_id)
-            bot.reply_to(message, f"✅ Post Sent to {CHANNEL_USERNAME}")
-        except Exception as e:
-            bot.reply_to(message, f"❌ Error: {e}")
+        return
 
-# --- 2. UNIVERSAL AUTO REPLY (User + Anonymous Admin) ---
-# YAHAN BADLAV HAI: @bot.channel_post_handler add kiya hai
-@bot.message_handler(func=lambda m: True)
-@bot.channel_post_handler(func=lambda m: True) 
-def auto_reply(message):
     try:
-        # Text nikalo (Text ya Caption)
-        text = ""
-        if message.text:
-            text = message.text.lower()
-        elif message.caption:
-            text = message.caption.lower()
-            
-        if not text:
-            return
+        # Channel par bhejo
+        bot.copy_message(chat_id=CHANNEL_USERNAME, from_chat_id=message.chat.id, message_id=message.message_id)
+        bot.reply_to(message, f"✅ Post Sent to {CHANNEL_USERNAME}")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {e}")
 
-        # Agar command hai to ignore karo (taki loop na bane)
-        if text.startswith('/'):
-            if text == "/start":
-                # Start command ka reply
-                bot.reply_to(message, "Hello! Main Active hoon. \nTry: 'Facebook', 'YouTube' or 'Hopweb'")
-            return
+# --- 2. GROUP AUTO REPLY (Discussion Group Support) ---
+# Ye handler har tarah ke text message ko padhega (Replies included)
+@bot.message_handler(func=lambda m: True, content_types=['text'])
+def smart_reply(message):
+    try:
+        text = message.text.lower()
+        
+        # Logs me print karega ki bot ne message dekha ya nahi (Render Logs check kar sakte hain)
+        print(f"Message received from {message.from_user.first_name}: {text}")
 
-        # --- KEYWORD CHECKING ---
+        # Agar Private chat hai to User save karo
+        if message.chat.type == 'private':
+            save_user(message.chat.id)
 
-        # 1. FACEBOOK
+        # --- KEYWORD MATCHING ---
+        
+        # Agar koi FACEBOOK maange
         if "facebook" in text:
-            bot.reply_to(message, f"👍 Facebook Page Link:\n{LINK_FACEBOOK}")
+            bot.reply_to(message, f"👍 Facebook Link:\n{LINK_FACEBOOK}")
             return
 
-        # 2. YOUTUBE
+        # Agar koi YOUTUBE maange
         if "youtube" in text:
-            bot.reply_to(message, f"📺 YouTube Channel Link:\n{LINK_YOUTUBE}")
+            bot.reply_to(message, f"📺 YouTube Link:\n{LINK_YOUTUBE}")
             return
 
-        # 3. HOPWEB
+        # Agar koi HOPWEB maange
         if "hopweb" in text:
             markup = types.InlineKeyboardMarkup()
             btn = types.InlineKeyboardButton("⬇️ Download HopWeb", url="https://play.google.com/store/apps/details?id=com.hopweb")
             markup.add(btn)
-            bot.reply_to(message, "HopWeb App yahan se download karein:", reply_markup=markup)
+            bot.reply_to(message, "Ye lijiye HopWeb App 👇", reply_markup=markup)
             return
 
-        # 4. TELEGRAM/CHANNEL
+        # Agar koi TELEGRAM maange
         if "telegram" in text or "channel" in text:
             bot.reply_to(message, f"📢 Telegram Channel:\n{LINK_TELEGRAM}")
             return
-
+            
+        # Commands
+        if text == "/start":
+            bot.reply_to(message, "Hello! Main Active hoon.\nKeywords try karein: 'Facebook', 'Hopweb', 'YouTube'")
+            
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error handling message: {e}")
 
 # --- START BOT ---
 if __name__ == "__main__":
     keep_alive()
-    # Skip pending messages to avoid crash on start
+    # 'none_stop=True' zaroori hai taaki bot ruke nahi
     bot.infinity_polling(skip_pending=True)
