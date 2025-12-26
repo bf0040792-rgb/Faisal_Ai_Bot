@@ -6,26 +6,26 @@ from flask import Flask
 from threading import Thread
 
 # --- CONFIGURATION ---
-TOKEN = '8434658302:AAFTeNg0PDQIHWnNX2cYtk0yTk0UBWGAxT8' # Apna Token
-ADMIN_ID = 8190715241 # Aapka ID
-PIN_CODE = "7010" # Aapka PIN Password
+TOKEN = '8434658302:AAFTeNg0PDQIHWnNX2cYtk0yTk0UBWGAxT8'
+ADMIN_ID = 8190715241
+PIN_CODE = "7010"
+CHANNEL_USERNAME = "@A1Android"
 
-# --- LINKS (Fixed Links) ---
+# --- MAIN LINKS ---
 LINK_FACEBOOK_MAIN = "https://www.facebook.com/profile.php?id=61555961901782"
 LINK_YOUTUBE_MAIN = "https://www.youtube.com/@Aiapplication1"
 LINK_TELEGRAM_MAIN = "https://t.me/A1Android"
 
-# Files to store data
 DATA_FILE = "memory.json"
 ACCESS_FILE = "access.json"
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask('')
 
-# --- WEB SERVER ---
+# --- WEB SERVER (For Render) ---
 @app.route('/')
 def home():
-    return "Bot is Running with PIN System! 🚀"
+    return "Bot is Running! 🚀"
 
 def run():
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
@@ -48,27 +48,24 @@ def save_json(filename, data):
     with open(filename, "w") as f:
         json.dump(data, f)
 
-# --- 1. PIN SYSTEM CHECK ---
+# --- 1. PIN SYSTEM ---
 def check_access(user_id):
-    # Admin ko PIN ki zaroorat nahi
     if user_id == ADMIN_ID:
         return True
-    
     access_data = load_json(ACCESS_FILE)
     return str(user_id) in access_data
 
-# --- 2. SAVE COMMAND (Admin Only) ---
-# Example: /save facebook reels description
+# --- 2. SAVE COMMAND (Save + Post to Channel) ---
 @bot.message_handler(commands=['save'])
 def save_keyword(message):
     if message.chat.id != ADMIN_ID:
         return
 
     try:
-        # Command se keyword nikalna (e.g. "facebook reels description")
+        # Command format: /save keyword
         command_parts = message.text.split(maxsplit=1)
         if len(command_parts) < 2:
-            bot.reply_to(message, "❌ Ghalat! Aise likhein:\nReply karke: `/save facebook reels description`")
+            bot.reply_to(message, "❌ **Incorrect Format!**\nReply to a message/file and write:\n`/save keyword`\nExample: `/save facebook reels`")
             return
 
         keyword = command_parts[1].lower().strip()
@@ -77,7 +74,7 @@ def save_keyword(message):
         if message.reply_to_message:
             reply = message.reply_to_message
             
-            # Data structure create karna
+            # --- PREPARE DATA ---
             content = {"caption": reply.caption if reply.caption else ""}
             
             if reply.document:
@@ -93,88 +90,99 @@ def save_keyword(message):
                 content["type"] = "text"
                 content["content"] = reply.text
             else:
-                bot.reply_to(message, "❌ Main ye file save nahi kar sakta.")
+                bot.reply_to(message, "❌ Unsupported file type.")
                 return
             
+            # Save to memory
             data[keyword] = content
             save_json(DATA_FILE, data)
-            bot.reply_to(message, f"✅ Saved as: **{keyword}**\nAb koi '{keyword}' likhega to ye milega.")
+            
+            # --- POST TO CHANNEL (Only now) ---
+            try:
+                bot.copy_message(chat_id=CHANNEL_USERNAME, from_chat_id=message.chat.id, message_id=reply.message_id)
+                bot.reply_to(message, f"✅ **Success!**\n1. Saved as keyword: `{keyword}`\n2. Posted to {CHANNEL_USERNAME}")
+            except Exception as e:
+                bot.reply_to(message, f"✅ Saved locally, but failed to post to channel.\nError: {e}")
+                
         else:
-            bot.reply_to(message, "❌ Kisi message par Reply karna zaroori hai.")
+            bot.reply_to(message, "❌ You must REPLY to a message to save it.")
 
     except Exception as e:
         bot.reply_to(message, f"Error: {e}")
 
-# --- 3. MAIN MESSAGE HANDLER ---
+# --- 3. UNIVERSAL MESSAGE HANDLER ---
+# Handles Group, Private, Channel Posts, Anonymous Admins
 @bot.message_handler(func=lambda m: True, content_types=['text'])
 @bot.channel_post_handler(func=lambda m: True, content_types=['text'])
 def handle_message(message):
     try:
-        user_id = message.chat.id
-        text = message.text.lower().strip() if message.text else ""
+        # Extract Text
+        text = ""
+        if message.text:
+            text = message.text.lower().strip()
+        elif message.caption:
+            text = message.caption.lower().strip()
+            
+        if not text:
+            return
 
-        # --- STEP A: PIN CHECK (Sirf Private Chat me) ---
+        user_id = message.chat.id
+
+        # --- PRIVATE CHAT (PIN SECURITY) ---
         if message.chat.type == 'private':
             if not check_access(user_id):
-                # Agar user ne PIN bheja hai check karo
                 if text == PIN_CODE:
-                    access_data = load_json(ACCESS_FILE)
-                    access_data[str(user_id)] = True
-                    save_json(ACCESS_FILE, access_data)
-                    bot.reply_to(message, "✅ **PIN Confirmed!**\nWelcome! Ab aap bot use kar sakte hain.\n\nType 'Facebook' or 'Youtube'.")
+                    d = load_json(ACCESS_FILE)
+                    d[str(user_id)] = True
+                    save_json(ACCESS_FILE, d)
+                    bot.reply_to(message, "✅ **Access Granted!**\nWelcome. You can now use the bot.")
                     return
                 else:
-                    bot.reply_to(message, "🔒 **Bot Locked!**\nKripya sahi PIN code dalein aage badhne ke liye.")
+                    bot.reply_to(message, "🔒 **Bot Locked!**\nPlease enter the correct PIN to continue.")
                     return
 
-        # --- STEP B: LOGIC START ---
+        # --- GROUP/CHANNEL LOGIC ---
         
-        # 1. Start Command
+        # Start Command
         if text == "/start":
-            bot.reply_to(message, "Hello! Bot Active hai.\nKuch search karein (eg: Facebook, Hopweb).")
+            if message.chat.type == 'private':
+                 bot.reply_to(message, "Hello! Bot is Active.")
             return
 
         saved_data = load_json(DATA_FILE)
         replied = False
 
-        # --- STEP C: SMART FACEBOOK SEARCH ---
-        # Agar user "Facebook" likhe, to Main Link + Saved Data dono milega
-        
+        # 1. SMART SEARCH: FACEBOOK
         if "facebook" in text:
-            # 1. Main Link bhejo
+            # Always send main link
             bot.reply_to(message, f"👍 **Facebook Main Channel:**\n{LINK_FACEBOOK_MAIN}")
             replied = True
             
-            # 2. Check karo agar 'Facebook' se juda kuch save hai (jaise 'facebook reels description')
-            # Agar user ne exact "facebook reels description" likha hai, wo niche exact match me pakda jayega.
-            # Lekin agar usne sirf "facebook" likha, to hum milta-julta dhoondenge.
-            
-            if text == "facebook": # Agar sirf 'facebook' likha hai
+            # If user typed ONLY "facebook", search for related saved items (like 'facebook reels')
+            if text == "facebook":
                 for key, content in saved_data.items():
                     if "facebook" in key:
-                        # Saved item bhi bhej do
                         send_saved_content(message.chat.id, content)
 
-        # Agar YouTube manga
+        # 2. SMART SEARCH: YOUTUBE
         elif "youtube" in text:
              bot.reply_to(message, f"📺 **YouTube Main Channel:**\n{LINK_YOUTUBE_MAIN}")
              replied = True
 
-        # --- STEP D: EXACT KEYWORD MATCH (Saved Data) ---
-        # Agar user ne exact wohi likha jo aapne save kiya tha
+        # 3. EXACT KEYWORD MATCH (From Saved Data)
         if text in saved_data:
-            if not replied: # Agar upar Facebook wala reply nahi gaya, tab hi bhejo (duplicate se bachne ke liye)
+            if not replied: # Avoid double reply if logic overlapped
                 send_saved_content(message.chat.id, saved_data[text])
                 replied = True
         
-        # Agar kuch nahi mila aur user ne specific maanga tha
+        # 4. HOPWEB FALLBACK
         if not replied and "hopweb" in text:
-             bot.reply_to(message, "⬇️ Download HopWeb: https://play.google.com/store/apps/details?id=com.hopweb")
+             bot.reply_to(message, "⬇️ HopWeb App: https://play.google.com/store/apps/details?id=com.hopweb")
 
     except Exception as e:
         print(f"Error: {e}")
 
-# Function to send saved content
+# Function to send saved content based on type
 def send_saved_content(chat_id, content):
     try:
         if content['type'] == 'text':
@@ -191,66 +199,4 @@ def send_saved_content(chat_id, content):
 # --- START BOT ---
 if __name__ == "__main__":
     keep_alive()
-    bot.infinity_polling(skip_pending=True)
-# --- 3. AUTO REPLY (Dynamic + Fixed) ---
-@bot.message_handler(func=lambda m: True, content_types=['text'])
-@bot.channel_post_handler(func=lambda m: True, content_types=['text']) 
-def smart_reply(message):
-    try:
-        # Message text nikalo
-        text = ""
-        if message.text:
-            text = message.text.lower()
-        elif message.caption:
-            text = message.caption.lower()
-            
-        if not text:
-            return
-
-        # Start Command
-        if text == "/start":
-            bot.reply_to(message, "Hello! Main Active hoon.")
-            return
-
-        # --- DYNAMIC DATA CHECK ---
-        data = load_data()
-        
-        # Check karein agar message me koi saved keyword hai
-        found_reply = False
-        
-        # Hum check karenge ki user ke message me keyword hai ya nahi
-        for keyword, content in data.items():
-            if keyword in text:
-                # Agar mil gaya, to bhej do
-                if content['type'] == 'text':
-                    bot.reply_to(message, content['content'])
-                
-                elif content['type'] == 'document':
-                    bot.send_document(message.chat.id, content['id'], caption=content['caption'])
-                
-                elif content['type'] == 'video':
-                    bot.send_video(message.chat.id, content['id'], caption=content['caption'])
-                    
-                elif content['type'] == 'photo':
-                    bot.send_photo(message.chat.id, content['id'], caption=content['caption'])
-                
-                found_reply = True
-                return # Ek reply karke ruk jao
-
-        # --- HARDCODED BACKUP (Jo aapne pehle maanga tha) ---
-        if not found_reply:
-            if "facebook" in text:
-                bot.reply_to(message, "👍 Facebook: https://www.facebook.com/profile.php?id=61555961901782")
-            elif "youtube" in text:
-                bot.reply_to(message, "📺 YouTube: https://www.youtube.com/@Aiapplication1")
-
-    except Exception as e:
-        print(f"Error: {e}")
-
-# --- START BOT ---
-if __name__ == "__main__":
-    keep_alive()
-    bot.infinity_polling(skip_pending=True)if __name__ == "__main__":
-    keep_alive()
-    # 'none_stop=True' zaroori hai taaki bot ruke nahi
     bot.infinity_polling(skip_pending=True)
